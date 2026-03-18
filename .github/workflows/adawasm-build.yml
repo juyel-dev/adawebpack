@@ -1,0 +1,42 @@
+name: AdaWASM Build & Playground
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wgprbuild Docker (Ada + WASM compiler)
+        run: |
+          cat > Dockerfile << 'EOF'
+          FROM registry.fedoraproject.org/fedora-minimal:40
+          RUN microdnf --assumeyes install gprbuild clang16 llvm16 lld libgnat ca-certificates && \
+              curl -O https://download.copr.fedorainfracloud.org/results/reznik/adawebpack/fedora-40-x86_64/07674186-adawebpack/adawebpack-24.0.0-git.fc40.x86_64.rpm && \
+              rpm -i adawebpack*.rpm && rm -f adawebpack*.rpm && \
+              /usr/share/adawebpack/update-alternatives-clang.sh 16 99 && \
+              microdnf clean all
+          EOF
+          docker build -t wgprbuild .
+
+      - name: Compile all Ada examples to WASM
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace wgprbuild bash -c "
+            cd examples && make build_examples
+          "
+
+      - name: Upload WASM files (download করতে পারবে)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-files
+          path: examples/**/*.wasm
+
+      - name: Deploy to GitHub Pages (playground)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: examples
